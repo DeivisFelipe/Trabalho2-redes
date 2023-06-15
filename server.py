@@ -13,6 +13,9 @@ sock.bind(('', well_known_port))
 # Set the number of clients waiting for connection that can be queued
 sock.listen(1)
 
+# create file to store received text
+file = open("received.txt", "wb")
+
 # loop waiting for connections (terminate with Ctrl-C)
 try:
     while 1:
@@ -22,9 +25,10 @@ try:
         while 1:
             receivedData = newSocket.recv(1024)
             if not receivedData: break
-            # Print the data just received
-            print(receivedData)
+            # Print the data to the file
+            file.write(receivedData)
         newSocket.close()
         print("Disconnected from", address)
 finally:
     sock.close(  )
+    file.close(  )
