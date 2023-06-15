@@ -1,4 +1,6 @@
+import math
 import os
+import time
 
 from scapy.arch import get_if_hwaddr
 from scapy.layers.inet import IP, TCP
@@ -16,7 +18,7 @@ MSS = 1460
 
 ip_pkt = IP(src=ip_src, dst=ip_dst)
 
-received_acks = []
+received_acks = {}
 
 
 # Função para enviar o pacote de conexão
@@ -65,8 +67,10 @@ def end_connection(seq, ack):
 
 
 # Função para enviar o pacote de dados e receber a confirmação
-def sr_pkt(pkts, timeout):
-    respondidos, nao_respondidos = sr(pkts, timeout=timeout, verbose=False)
+def sr_pkt(pkts, rtt):
+    t = rtt * (1 + math.log10(len(pkts)))
+    print(rtt, t)
+    respondidos, nao_respondidos = sr(pkts, timeout=t, verbose=False)
     return respondidos, nao_respondidos
 
 
@@ -102,11 +106,11 @@ def send_data(file, file_size, pkt, timeout):
     last_ack = pkt.seq
     ss_thresh = 16
     cwind = 1
-    RTT = 0.1
+    RTT = timeout
 
     print(curr_file_position_confirmed, curr_file_position, file_size)
 
-    ack_to_file_position = {}
+    ack_to_file_position_and_time = {}
 
     # Enquanto a posição atual do arquivo for menor que o tamanho do arquivo
     while curr_file_position_confirmed < file_size:
@@ -122,7 +126,7 @@ def send_data(file, file_size, pkt, timeout):
             novopkt = CriaPacote(pkt.seq, pkt.ack, var)
             # Adiciona o pacote na lista de pacotes
             listaDePacotes.append(novopkt)
-            ack_to_file_position[novopkt.seq + len(var)] = curr_file_position + len(var)
+            ack_to_file_position_and_time[novopkt.seq + len(var)] = (curr_file_position + len(var), time.time())
 
             # Atualiza o numero de sequencia do pacote
             pkt.seq = pkt.seq + len(var)
@@ -147,15 +151,14 @@ def send_data(file, file_size, pkt, timeout):
                 biggest_ack = max(received_acks)
                 if biggest_ack > last_ack:
                     last_ack = biggest_ack
-                    curr_file_position_confirmed = ack_to_file_position[last_ack]
+                    curr_file_position_confirmed = ack_to_file_position_and_time[last_ack][0]
 
             curr_file_position = curr_file_position_confirmed
-
             pkt.seq = last_ack
             # print("timeout")
         elif last_ack != pkt.seq:  # Se o ack for diferente do seq, então houve perda de pacote
             cwind, ss_thresh = MD(cwind, ss_thresh)
-            curr_file_position_confirmed = ack_to_file_position[last_ack]
+            curr_file_position_confirmed = ack_to_file_position_and_time[last_ack][0]
             curr_file_position = curr_file_position_confirmed
             pkt.seq = last_ack
             # print("perda de pacote")
@@ -167,6 +170,9 @@ def send_data(file, file_size, pkt, timeout):
             curr_file_position_confirmed = curr_file_position
             pkt.seq = last_ack
             # print("sem perda de pacote")
+
+        if last_ack in received_acks:
+            RTT = received_acks[last_ack] - ack_to_file_position_and_time[last_ack][1]
 
         # printa o curr_file_position_confirmed e o curr_file_position e o file_size
         # print("curr_file_position_confirmed, curr_file_position, file_size")
@@ -190,7 +196,7 @@ def we_just_sent_it(pkt: Packet):
 def handle_response(pkt):
     # print("Recebeu pacote")
     # pkt.show()
-    received_acks.append(pkt[TCP].ack)
+    received_acks[pkt[TCP].ack] = time.time()
 
 
 def handle_tcp_packet(pkt):
