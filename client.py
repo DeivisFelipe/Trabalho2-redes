@@ -1,6 +1,11 @@
 import os
+
+from scapy.arch import get_if_hwaddr
 from scapy.layers.inet import IP, TCP
 from scapy.all import sr1, send, sr, AsyncSniffer
+from scapy.layers.l2 import Ether
+from scapy.packet import Packet, Raw
+from scapy.sendrecv import sniff
 
 ip_src = '10.1.1.1'
 ip_dst = '10.1.1.2'
@@ -10,6 +15,8 @@ timeout = 0.15
 MSS = 1460
 
 ip_pkt = IP(src=ip_src, dst=ip_dst)
+
+received_acks = []
 
 
 # Função para enviar o pacote de conexão
@@ -135,9 +142,16 @@ def send_data(file, file_size, pkt, timeout):
         if len(answered) == 0:  # timeout
             cwind, ss_thresh = MD(cwind, ss_thresh)
             cwind = 1
+
+            if not len(received_acks) == 0:
+                biggest_ack = max(received_acks)
+                if biggest_ack > last_ack:
+                    last_ack = biggest_ack
+                    curr_file_position_confirmed = ack_to_file_position[last_ack]
+
             curr_file_position = curr_file_position_confirmed
+
             pkt.seq = last_ack
-            RTT = RTT * 2
             # print("timeout")
         elif last_ack != pkt.seq:  # Se o ack for diferente do seq, então houve perda de pacote
             cwind, ss_thresh = MD(cwind, ss_thresh)
@@ -162,6 +176,33 @@ def send_data(file, file_size, pkt, timeout):
 
     return pkt.seq, pkt.ack
 
+
+def mac(interface: str):
+    return get_if_hwaddr(interface)
+
+
+def we_just_sent_it(pkt: Packet):
+    if pkt[Ether].src == mac(pkt.sniffed_on):
+        return True
+    return False
+
+
+def handle_response(pkt):
+    # print("Recebeu pacote")
+    # pkt.show()
+    received_acks.append(pkt[TCP].ack)
+
+
+def handle_tcp_packet(pkt):
+    if pkt.haslayer(TCP) and pkt.haslayer(IP):
+        if pkt[TCP].sport == dst_port and not we_just_sent_it(pkt):
+            handle_response(pkt)
+
+
+def begin_sniff_for_tcp():
+    sniffer = AsyncSniffer(iface="h1-eth0", filter="tcp", prn=handle_tcp_packet, quiet=True)
+    sniffer.start()
+
 def main():
     # Enviar o pacote de conexão
     seq, ack = begin_connection()
@@ -169,6 +210,8 @@ def main():
     f = open("lotr.txt", "rb")
     # Cria o pacote com os dados base
     pkt = ip_pkt / TCP(dport=dst_port, flags='PA', seq=seq, ack=ack)
+    # Inicia o sniffer
+    begin_sniff_for_tcp()
     # Envia os dados
     seq, ack = send_data(f, os.path.getsize("lotr.txt"), pkt, timeout)
     # Enviar o pacote de finalização
