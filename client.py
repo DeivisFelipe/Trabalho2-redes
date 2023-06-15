@@ -8,7 +8,7 @@ ip_dst = '10.1.1.2'
 dst_port = 8881
 timeout = 1
 # Maximum Segment Size
-MSS = 500
+MSS = 1460
 
 ip_pkt = IP(src=ip_src, dst=ip_dst)
 
@@ -70,9 +70,12 @@ def CriaPacote(seq, ack, data=b''):
     return ip_pkt / TCP(dport=dst_port, flags='PA', seq=seq, ack=ack) / data
 
 def send_data(file, file_size, pkt, timeout):
-    pkts_to_send = 3
+    pkts_to_send = 2
     curr_file_position = 0
     curr_file_position_confirmed = 0
+    last_ack = pkt.seq
+    ss_thresh = 1000
+    cwind = 1
 
     print(curr_file_position_confirmed, curr_file_position, file_size)
 
@@ -100,15 +103,24 @@ def send_data(file, file_size, pkt, timeout):
         # Envia os pacotes
         respondidos = sr_pkt(listaDePacotes, timeout)
         # Ve se algum dos pacotes respondidos é o pacote de confirmação
-        ack = 0
+        ack = last_ack
         for pktresp in respondidos:
             if pktresp[1].ack > ack:
                 ack = pktresp[1].ack
 
-        if ack != pkt.seq:
+        if ack != pkt.seq: # Se o ack for diferente do seq, então houve perda de pacote
             curr_file_position = curr_file_position_confirmed
+            # cwind = 1
+            # ss_thresh = max(2, pkts_to_send // 2)
+            # pkts_to_send = 1
         else:
+            # if cwind < ss_thresh:
+            #     cwind = cwind * 2
+            # else:
+            #     cwind = cwind + 1
+            # pkts_to_send = cwind
             curr_file_position_confirmed = curr_file_position
+            last_ack = ack
         pkt.seq = ack
 
         # printa o curr_file_position_confirmed e o curr_file_position e o file_size
@@ -120,11 +132,11 @@ def main():
     # Enviar o pacote de conexão
     seq, ack = begin_connection()
     # Le o arquivo e envia os pacotes
-    f = open("lotr copy.txt", "rb")
+    f = open("lotr.txt", "rb")
     # Cria o pacote com os dados base
     pkt = ip_pkt / TCP(dport=dst_port, flags='PA', seq=seq, ack=ack)
     # Envia os dados
-    seq, ack = send_data(f, os.path.getsize("lotr copy.txt"), pkt, timeout)
+    seq, ack = send_data(f, os.path.getsize("lotr.txt"), pkt, timeout)
     # Enviar o pacote de finalização
     end_connection(seq, ack)
 
