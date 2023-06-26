@@ -13,7 +13,7 @@ class BasicTopo(Topo):
       h1 = self.addHost('h1', ip='10.1.1.1/24', defaultRoute='via 10.1.1.254')
       h2 = self.addHost('h2', ip='10.1.1.2/24', defaultRoute='via 10.1.1.254') 
 
-      self.addLink(h1, h2, cls=TCLink, bw=1, delay='50ms', loss=3) 
+      self.addLink(h1, h2, cls=TCLink, bw=10**6, delay='20ms', loss=0.1)
 
 def run():
     "Basic example"

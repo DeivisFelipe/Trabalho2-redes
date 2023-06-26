@@ -2,6 +2,7 @@ import math
 import os
 import time
 
+from matplotlib import pyplot as plt
 from scapy.arch import get_if_hwaddr
 from scapy.layers.inet import IP, TCP
 from scapy.all import sr1, send, sr, AsyncSniffer
@@ -19,6 +20,8 @@ MSS = 1460
 ip_pkt = IP(src=ip_src, dst=ip_dst)
 
 received_acks = {}
+
+results = []
 
 
 # Função para enviar o pacote de conexão
@@ -69,7 +72,7 @@ def end_connection(seq, ack):
 # Função para enviar o pacote de dados e receber a confirmação
 def sr_pkt(pkts, rtt):
     t = rtt * (1 + math.log10(len(pkts)))
-    print(rtt, t)
+    # print(rtt, t)
     respondidos, nao_respondidos = sr(pkts, timeout=t, verbose=False)
     return respondidos, nao_respondidos
 
@@ -100,15 +103,15 @@ def isAtSlowStart(cwind, ss_thresh):
     return cwind < ss_thresh
 
 
-def send_data(file, file_size, pkt, timeout):
+def send_data(file, file_size, pkt, rtt):
     curr_file_position = 0
     curr_file_position_confirmed = 0
     last_ack = pkt.seq
     ss_thresh = 16
     cwind = 1
-    RTT = timeout
+    RTT = rtt
 
-    print(curr_file_position_confirmed, curr_file_position, file_size)
+    # print(curr_file_position_confirmed, curr_file_position, file_size)
 
     ack_to_file_position_and_time = {}
 
@@ -140,8 +143,7 @@ def send_data(file, file_size, pkt, timeout):
         for response in answered:
             if response[1].ack > last_ack:
                 last_ack = response[1].ack
-            print(response[1].ack, last_ack)
-
+            # print(response[1].ack, last_ack)
 
         if len(answered) == 0:  # timeout
             cwind, ss_thresh = MD(cwind, ss_thresh)
@@ -174,6 +176,8 @@ def send_data(file, file_size, pkt, timeout):
         if last_ack in received_acks:
             RTT = received_acks[last_ack] - ack_to_file_position_and_time[last_ack][1]
 
+        print("last_ack: ", last_ack, " cwind: ", cwind, " ss_thresh: ", ss_thresh, " RTT: ", RTT)
+        results.append((cwind, ss_thresh))
         # printa o curr_file_position_confirmed e o curr_file_position e o file_size
         # print("curr_file_position_confirmed, curr_file_position, file_size")
         # print(curr_file_position_confirmed, curr_file_position, file_size)
@@ -209,6 +213,7 @@ def begin_sniff_for_tcp():
     sniffer = AsyncSniffer(iface="h1-eth0", filter="tcp", prn=handle_tcp_packet, quiet=True)
     sniffer.start()
 
+
 def main():
     # Enviar o pacote de conexão
     seq, ack = begin_connection()
@@ -222,6 +227,13 @@ def main():
     seq, ack = send_data(f, os.path.getsize("lotr.txt"), pkt, timeout)
     # Enviar o pacote de finalização
     end_connection(seq, ack)
+
+    fig, axs = plt.subplots(1, 1)
+    axs.plot([i for i in range(len(results))], [i[0] for i in results], label="cwnd")
+    axs.plot([i for i in range(len(results))], [i[1] for i in results], label="ssthresh")
+    axs.legend()
+    plt.savefig('results.png')
+    plt.show()
 
 
 if __name__ == '__main__':
